@@ -13,8 +13,6 @@ import config as C
 
 from . import xl
 from .actions import store_actions, supervisor_actions, tr
-from .metrics import transfers
-from .model_merch import _otb
 
 NAME = "KET_HOP_OGSM_4DX_OTB"
 
@@ -45,6 +43,16 @@ def _st(s):
     return s["units28"] / (s["units28"] + s["onhand"]) if s["units28"] + s["onhand"] else 0
 
 
+def _otb(s):
+    cat = s["cat"].copy()
+    units_plan = s["week_target"] / s["asp_tgt"] if s["asp_tgt"] else 0
+    tot = cat["q28"].sum() or 1
+    cat["plan_units"] = (cat["q28"] / tot * units_plan).round()
+    cat["otb"] = (cat["plan_units"] + cat["q28"] / 28 * C.TARGET_COVER_DAYS - cat["onhand"] - cat["incoming"]).clip(lower=0).round()
+    cat["excess"] = (cat["onhand"] - cat["q28"] / 28 * C.OVERSTOCK_COVER_DAYS).clip(lower=0).round()
+    return cat, units_plan
+
+
 # ---------------------------------------------------------------- vùng
 def _guide(wb, ctx, gs):
     ws = wb.create_sheet("Hướng dẫn")
@@ -56,12 +64,12 @@ def _guide(wb, ctx, gs):
         ["Chiến lược", "OGSM", "Đi đâu? Thắng bằng 4 chiến lược nào? Đo bằng gì?", "Sheet 'OGSM vùng' + mục ① mỗi CH"],
         ["Thực thi bán hàng", "Driver Tree + 4DX", "Thiếu target do bill, UPT hay giá? Mỗi ngày làm gì? (S1, S2, S4)",
          "Sheet 'Điều hành bán hàng' + mục ② mỗi CH"],
-        ["Thực thi hàng hóa", "OTB + PDCA", "Cần nhập/bổ sung/điều chuyển/xả hàng nào? (S3)", "Sheet 'Hàng hóa vùng' + mục ③ mỗi CH"],
+        ["Thực thi hàng hóa", "OTB + PDCA", "Cần nhập mẫu nào (đủ size), xả gì, mùa vụ & sự kiện nào? (S3)", "Sheet 'Hàng hóa vùng' + mục ③ mỗi CH"],
         ["Cải tiến", "PDCA (Act) + họp WIG", "Tuần qua chiến lược nào hiệu quả, tuần sau đổi gì?", "Mục ④ mỗi CH"]])
     r = xl.section(ws, r, "Nhịp làm việc trong tuần", 6)
     r, _ = xl.table(ws, r, ["Thời điểm", "Ai", "Việc", "Dùng phần nào"], [
         ["Thứ Hai sáng", "GS + CHT", "Họp WIG 20': xem OGSM CH, driver tree, chốt cam kết tuần", "① ② ④ (tuần trước)"],
-        ["Thứ Hai", "CHT → GS", "Kiểm đếm hàng bán chạy, gửi đề xuất bổ sung/OTB; GS duyệt điều chuyển", "③ + Hàng hóa vùng"],
+        ["Thứ Hai", "CHT → GS", "Kiểm đếm hàng bán chạy, gửi đề xuất bổ sung/OTB; GS duyệt đề xuất mẫu đủ size & xử lý size lẻ", "③ + Hàng hóa vùng"],
         ["Mỗi sáng", "CHT + NV", "Họp đầu ca 10': bảng điểm hôm qua, 1 cam kết/người", "② Bảng điểm ngày"],
         ["Mỗi tối", "CHT", "Nhập thực tế, số bill, số SP; cập nhật trạng thái checklist", "② ③ (ô vàng, cột Trạng thái)"],
         ["T3–T5", "CHT", "Nhận hàng lên kệ 24h, đổi layout tồn chậm, đủ size mẫu top", "③ Checklist hàng hóa"],
@@ -73,7 +81,10 @@ def _guide(wb, ctx, gs):
               "Target tuần/ngày = phần target tháng còn thiếu chia cho các ngày còn lại theo trọng số thứ (T7–CN cao hơn).",
               f"Hàng hóa: tồn mục tiêu {C.TARGET_COVER_DAYS} ngày bán; bổ sung khi cover < {C.LOW_COVER_DAYS} ngày; "
               f"tồn chậm = không bán {C.SLOW_MOVER_DAYS} ngày; tồn dư khi cover > {C.OVERSTOCK_COVER_DAYS} ngày.",
-              "Mã S1–S4 ở cột 'Đòn bẩy' cho biết hành động phục vụ chiến lược nào trong OGSM."]:
+              "Mã S1–S4 ở cột 'Đòn bẩy' cho biết hành động phục vụ chiến lược nào trong OGSM.",
+              "Số liệu bán hàng chỉ tính kênh POS (bán tại quầy).",
+              "Hàng hóa: KHÔNG chuyển lẻ size giữa cửa hàng. Gợi ý ở cấp MẪU-MÀU đủ dải size, dựa trên CH cùng khu vực, "
+              "xu hướng nhóm hàng theo khu vực, mùa vụ và lịch sự kiện. GS là người quyết định."]:
         ws.cell(r, 1, "• " + t).alignment = xl.WRAP
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
         ws.row_dimensions[r].height = 30
@@ -140,34 +151,58 @@ def _sales_region(wb, ctx, stores):
     ws.freeze_panes = "B4"
 
 
-def _merch_region(wb, ctx, stores, tf):
+def _events(ws, r, ctx, width=10):
+    r = xl.section(ws, r, f"Lịch sự kiện {C.EVENT_LOOKAHEAD_DAYS} ngày tới (DS chuỗi POS ngày sự kiện ±1 so với TB cùng thứ 4 tuần trước)", width)
+    r, _ = xl.table(ws, r, ["Ngày", "Sự kiện", "Gợi ý hàng hóa/hoạt động", "Hiệu ứng lần gần nhất", "Tham chiếu"],
+                    [[e["date"], e["name"], e["hint"], e["uplift"], e["ref"]] for e in ctx.events],
+                    [xl.DATE, None, None, '0.00"x"', None])
+    if ctx.event_hist:
+        ws.cell(r - 1, 1, "Đã đo: " + " · ".join(f"{h['name']} {h['date']:%d/%m} ×{h['uplift']:.2f}" for h in ctx.event_hist)).font = xl.F_NOTE
+        r += 1
+    return r
+
+
+def _merch_region(wb, ctx, stores):
     ws = wb.create_sheet("Hàng hóa vùng")
-    r = xl.title(ws, "HÀNG HÓA VÙNG – OTB + PDCA (S3)", f"Tồn kho snapshot {ctx.inv_snapshot:%d/%m/%Y}")
-    r = xl.section(ws, r, "Sức khỏe tồn kho theo cửa hàng (tồn nặng nhất lên đầu)", 11)
-    rows = [[s["name"], s["rag"], s["onhand"], s["store_cover"], _st(s), len(s["rep"]), len(s["miss"]),
-             s["slow_n"], s["slow_units"], s["slow_units"] / s["onhand"] if s["onhand"] else 0]
+    r = xl.title(ws, "HÀNG HÓA VÙNG – OTB + PDCA (S3)",
+                 f"Tồn kho {ctx.inv_snapshot:%d/%m/%Y} · Bán POS đến {ctx.as_of:%d/%m/%Y} · Không chuyển lẻ size – gợi ý cấp mẫu đủ size")
+    r = xl.section(ws, r, "Sức khỏe tồn kho & đặc tính cửa hàng (tồn nặng nhất lên đầu)", 12)
+    rows = [[s["name"], s["profile"]["region"], s["rag"], s["onhand"], s["store_cover"], _st(s),
+             s["profile"]["price_tier"], s["profile"]["women_share"], s["profile"]["core_sizes"],
+             len(s["style_requests"]), s["broken_n"], s["broken_units"], s["slow_units"]]
             for s in sorted(stores, key=lambda x: x["store_cover"], reverse=True)]
-    r, _ = xl.table(ws, r, ["Cửa hàng", "Trạng thái DS", "Tồn (SP)", "Cover (ngày)", "ST% 28N", "SKU cần bổ sung",
-                            "Mẫu top thiếu", "SKU tồn chậm", "SP tồn chậm", "% tồn chậm"], rows,
-                    [None, None, xl.INT, "0", xl.PCT, xl.INT, xl.INT, xl.INT, xl.INT, xl.PCT])
-    allc = pd.concat([s["cat"][["q28", "r28", "onhand", "incoming"]] for s in stores]).groupby(level=0).sum()
-    allc["cover"] = allc.apply(lambda x: x.onhand / (x.q28 / 28) if x.q28 else None, axis=1)
-    allc["st"] = allc.apply(lambda x: x.q28 / (x.q28 + x.onhand) if x.q28 + x.onhand else 0, axis=1)
-    allc = allc.sort_values("r28", ascending=False)
-    r = xl.section(ws, r, "Nhóm hàng toàn vùng", 11)
-    r, _ = xl.table(ws, r, ["Nhóm hàng", "Doanh số 28N", "Bán 28N", "Tồn", "Đang về", "Cover (ngày)", "ST% 28N"],
-                    [[k, x.r28, x.q28, x.onhand, x.incoming, x.cover, x.st] for k, x in allc.iterrows()],
-                    [None, xl.MONEY, xl.INT, xl.INT, xl.INT, "0", xl.PCT])
-    r = xl.section(ws, r, f"Điều chuyển nội vùng đề xuất – GS duyệt ({len(tf)} dòng)", 11)
-    r, f = xl.table(ws, r, ["Từ CH", "Đến CH", "SKU", "Tên SP", "SL", "Trạng thái"],
-                    [[t["tu"], t["den"], t["sku"], t["ten"], t["sl"], None] for t in tf])
-    if tf:
-        xl.status_col(ws, "F", f, f + len(tf) - 1)
-    xl.widths(ws, [34, 30, 16, 40, 10, 12, 12, 12, 12, 12])
+    r, _ = xl.table(ws, r, ["Cửa hàng", "Khu vực", "Trạng thái DS", "Tồn (SP)", "Cover (ngày)", "ST% 28N",
+                            "Mức giá vs chuỗi", "% hàng nữ", "Size bán chạy", "Mẫu đề xuất nhận",
+                            "Mẫu size lẻ", "SP size lẻ", "SP tồn chậm"], rows,
+                    [None, None, None, xl.INT, "0", xl.PCT, "0.00", xl.PCT, None, xl.INT, xl.INT, xl.INT, xl.INT])
+    regions = sorted({s["region"] for s in stores})
+    for reg in regions:
+        t = ctx.region_trend.get(reg)
+        if t is None:
+            continue
+        r = xl.section(ws, r, f"Xu hướng nhóm hàng – {C.REGIONS.get(reg, reg)} (28N gần nhất vs 28N trước) · "
+                              f"Mùa vụ: {region_climate(reg, ctx)}", 12)
+        rows = [[k, x.q28, x.share, x.growth] for k, x in t.head(15).iterrows()]
+        r, f = xl.table(ws, r, ["Nhóm hàng", "Bán 28N (SL)", "Tỷ trọng", "Tăng/giảm"], rows, [None, xl.INT, xl.PCT, "+0%;-0%"])
+    r = _events(ws, r, ctx, 12)
+    rot = [(s["name"], x) for s in stores for x in s["rotations"]]
+    r = xl.section(ws, r, f"Gợi ý luân chuyển NGUYÊN MẪU (đủ size, CH không bán 60N, khu vực khác đang bán) – GS quyết định ({len(rot)})", 12)
+    r, f = xl.table(ws, r, ["CH đang giữ", "Mẫu – màu", "Nhóm", "Số size", "SL", "Khu vực bán tốt", "Bán 28N ở đó",
+                            "Xu hướng nhóm ở đó", "Quyết định"],
+                    [[n, x["style"], x["cat"], x["n_sizes"], x["units"], x["to_region"], x["to_q28"], x["to_growth"], None] for n, x in rot],
+                    [None, None, None, xl.INT, xl.INT, None, xl.INT, "+0%;-0%", None])
+    if rot:
+        xl.status_col(ws, "I", f, f + len(rot) - 1)
+    xl.widths(ws, [34, 44, 16, 12, 10, 14, 12, 10, 14, 12, 10, 10, 10])
+
+
+def region_climate(reg, ctx):
+    from .insights import climate_note
+    return climate_note(reg, ctx.week_start.month) or "-"
 
 
 # ---------------------------------------------------------------- cửa hàng
-def _store(wb, ctx, s, tf):
+def _store(wb, ctx, s):
     ws = wb.create_sheet(xl.sheet_name(wb, s["name"]))
     b = ctx.bench
     acts = _tag(store_actions(s, ctx))
@@ -176,6 +211,17 @@ def _store(wb, ctx, s, tf):
                       ("Lũy kế", s["mtd"], xl.MONEY), ("% LK", s["ach_mtd"], xl.PCT),
                       ("Dự báo cuối tháng", s["forecast"], xl.MONEY), ("% dự báo", s["ach_fc"], xl.PCT),
                       ("Target tuần", s["week_target"], xl.MONEY), ("Cần/ngày còn lại", s["need_per_day"], xl.MONEY)])
+
+    p = s["profile"]
+    r = xl.section(ws, r, "Đặc tính cửa hàng – địa lý · khách hàng · mùa vụ", 10)
+    cb = p["combo"]
+    r = xl.kv(ws, r, [("Khu vực", p["region"], None), ("Loại mặt bằng", p["archetype"], None),
+                      ("Mức giá vs chuỗi", p["price_tier"] or 0, "0.00\"x\""), ("% hàng nữ (90N)", p["women_share"], xl.PCT),
+                      ("% phụ kiện (SL)", p["addon_share"], xl.PCT), ("Size bán chạy", p["core_sizes"], None),
+                      ("UPT bill combo / thường", f"{cb[0]:.1f} / {cb[1]:.1f}" if cb else "-", None),
+                      ("% bill combo", cb[2] if cb else 0, xl.PCT)])
+    ws.cell(r - 1, 1, f"Mùa vụ: {p['climate'] or '-'}  ·  So sánh với: {p['peer_scope']}").font = xl.F_NOTE
+    r += 1
 
     # ① OGSM
     r = xl.section(ws, r, "① OGSM CỬA HÀNG – chiến lược tuần", 10)
@@ -232,7 +278,7 @@ def _store(wb, ctx, s, tf):
                   f"cover {s['store_cover']:,.0f} ngày · ST% 28N {_st(s):.0%}").font = xl.F_B
     r += 1
     rows = [[k, x.q28, x.onhand, x.incoming, x.cover if x.cover < 9999 else None, x.st, x.plan_units, x.otb, x.excess,
-             "BỔ SUNG" if x.otb > 0 and x.cover < C.LOW_COVER_DAYS * 2 else ("XẢ / ĐIỀU CHUYỂN" if x.excess > 0 else "OK")]
+             "BỔ SUNG" if x.otb > 0 and x.cover < C.LOW_COVER_DAYS * 2 else ("XẢ / LUÂN CHUYỂN NGUYÊN MẪU" if x.excess > 0 else "OK")]
             for k, x in cat.iterrows()]
     r, _ = xl.table(ws, r, ["Nhóm hàng", "Bán 28N", "Tồn", "Đang về", "Cover (ngày)", "ST% 28N",
                             "KH bán tuần (SL)", "OTB cần nhập (SL)", "Tồn dư (SL)", "Hành động"], rows,
@@ -243,13 +289,38 @@ def _store(wb, ctx, s, tf):
     r = xl.sku_table(ws, r + 1, s["rep"], "rep")
     ws.cell(r, 1, "D – Mẫu top chuỗi CH chưa có").font = xl.F_B
     r = xl.sku_table(ws, r + 1, s["miss"], "miss")
-    mine = [t for t in tf if s["name"] in (t["tu"], t["den"])]
-    ws.cell(r, 1, "D – Điều chuyển liên quan CH").font = xl.F_B
-    r, f2 = xl.table(ws, r + 1, ["Chiều", "CH đối tác", "SKU", "Tên SP", "SL", "Trạng thái"],
-                     [["NHẬN" if t["den"] == s["name"] else "CHUYỂN ĐI", t["tu"] if t["den"] == s["name"] else t["den"],
-                       t["sku"], t["ten"], t["sl"], None] for t in mine])
-    if mine:
-        xl.status_col(ws, "F", f2, f2 + len(mine) - 1)
+    ws.cell(r, 1, f"D – Cơ hội nhóm hàng so với {p['peer_scope']} (tỷ trọng SL 90N, xu hướng khu vực 28N)").font = xl.F_B
+    r, _ = xl.table(ws, r + 1, ["Nhóm hàng", "Tỷ trọng CH", "Tỷ trọng khu vực", "Chênh lệch", "Xu hướng khu vực", "Nhận định"],
+                    [[c["cat"], c["store_share"], c["peer_share"], c["gap"], c["growth"], c["hint"]] for c in s["cat_opps"]],
+                    [None, xl.PCT, xl.PCT, "+0%;-0%", "+0%;-0%", None])
+    ws.cell(r, 1, "D – Đề xuất nhận mẫu ĐỦ SIZE (bán tốt ở CH cùng khu vực, CH không có/chỉ còn size lẻ)").font = xl.F_B
+    rq = s["style_requests"]
+    r, f2 = xl.table(ws, r + 1, ["Mẫu – màu", "Nhóm", "Bán 28N ở khu vực", "Số CH khu vực bán", "Tình trạng tại CH",
+                                 "Size nên nhận (bán chạy của mẫu ở khu vực)", "Kho tổng: số size", "Kho tổng: SL", "Trạng thái"],
+                     [[x["style"], x["cat"], x["peer_q28"], x["peer_stores"], x["state"], x["sizes"],
+                       x["wh_sizes"], x["wh_units"], None] for x in rq],
+                     [None, None, xl.INT, xl.INT, None, None, xl.INT, xl.INT, None])
+    if rq:
+        xl.status_col(ws, "I", f2, f2 + len(rq) - 1)
+    ws.cell(r, 1, f"D – Size lẻ: {s['broken_n']} mẫu / {s['broken_units']:,.0f} SP (còn < {C.MIN_SIZES_FULL_RUN} size, "
+                  "không bán 60N) → gom khu xả size lẻ / KM tại chỗ / trả kho – KHÔNG chuyển lẻ sang CH khác").font = xl.F_B
+    br = s["broken"]
+    r, f3 = xl.table(ws, r + 1, ["Mẫu – màu", "Nhóm", "Size còn", "SL", "Phương án", "Trạng thái"],
+                     [[x.style, x.categoryName, x.sizes, x.units, None, None] for x in br.itertuples()],
+                     [None, None, None, xl.INT, None, None])
+    if len(br):
+        from openpyxl.worksheet.datavalidation import DataValidation
+        dv = DataValidation(type="list", formula1='"Khu xả size lẻ,KM tại chỗ,Trả kho tổng,Giữ lại"', allow_blank=True)
+        ws.add_data_validation(dv)
+        dv.add(f"E{f3}:E{f3 + len(br) - 1}")
+        xl.input_cells(ws, f"E{f3}:E{f3 + len(br) - 1}")
+        xl.status_col(ws, "F", f3, f3 + len(br) - 1)
+    if s["rotations"]:
+        ws.cell(r, 1, "D – Gợi ý luân chuyển NGUYÊN MẪU (đủ size) về khu vực đang bán tốt – GS quyết định").font = xl.F_B
+        r, _ = xl.table(ws, r + 1, ["Mẫu – màu", "Nhóm", "Số size", "SL", "Khu vực bán tốt", "Bán 28N ở đó", "Xu hướng nhóm ở đó"],
+                        [[x["style"], x["cat"], x["n_sizes"], x["units"], x["to_region"], x["to_q28"], x["to_growth"]] for x in s["rotations"]],
+                        [None, None, xl.INT, xl.INT, None, xl.INT, "+0%;-0%"])
+    r = _events(ws, r, ctx)
     ws.cell(r, 1, f"D – Tồn chậm: {s['slow_n']} SKU / {s['slow_units']:,.0f} SP (top theo tồn)").font = xl.F_B
     r = xl.sku_table(ws, r + 1, s["slow"], "slow")
     ws.cell(r, 1, "C – Kiểm tra hàng hóa trong tuần").font = xl.F_B
@@ -275,12 +346,11 @@ def _store(wb, ctx, s, tf):
 
 def render(ctx, gs, stores, path):
     wb = xl.new_wb()
-    tf = transfers(stores)
     _guide(wb, ctx, gs)
     _ogsm_region(wb, ctx, gs, stores)
     _sales_region(wb, ctx, stores)
-    _merch_region(wb, ctx, stores, tf)
+    _merch_region(wb, ctx, stores)
     for s in sorted(stores, key=lambda x: x["name"]):
-        _store(wb, ctx, s, tf)
+        _store(wb, ctx, s)
     wb.active = 1
     wb.save(path)

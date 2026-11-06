@@ -35,6 +35,10 @@ Cùng một bộ số liệu được trình bày theo **3 mô hình quản tr�
 
 Mục tiêu của tài liệu: giúp người duyệt hiểu **mỗi mô hình là gì, vận hành thế nào, file Excel thể hiện ra sao**, từ đó chọn mô hình (hoặc kết hợp) để triển khai.
 
+> **Trạng thái hiện tại:** hệ thống chỉ xuất **file mô hình kết hợp** (mục 7). Các mục 3–5 mô tả phương pháp của từng mô hình thành phần; phần "cấu trúc file" ở các mục đó là bản thử nghiệm ban đầu, không còn được xuất riêng.
+>
+> **Thay đổi:** số liệu bán hàng chỉ tính **kênh POS**. Phần "điều chuyển lẻ từng size giữa cửa hàng" đã **bỏ**, vì làm cửa hàng chuyển đi bị lủng size. Thay bằng phân tích theo **mẫu đủ size**, **đặc tính khu vực**, **mùa vụ** và **sự kiện** (mục 7.5).
+
 ---
 
 ## 2. Nền tảng số liệu dùng chung
@@ -49,8 +53,9 @@ Cả 3 mô hình dùng chung một "engine" tính toán, nên **số liệu gi�
 | Target | `MaLocation` |
 | Tồn kho | `loc_id` |
 
-- **Doanh thu** = tổng `SP_ThanhTien` của các đơn **không hủy** và **không hoàn tiền/void**.
-- Có thể đổi sang "chỉ tính bán tại quầy (POS)" hoặc "trừ giảm giá dòng" trong `config.py`.
+- **Doanh thu** = tổng `SP_ThanhTien` của các đơn **kênh POS** (bán tại quầy), **không hủy**, **không hoàn tiền/void**.
+- Có thể đổi kênh hoặc cách tính (vd "trừ giảm giá dòng") trong `config.py`.
+- Công cụ dụng cụ, vật tư trưng bày, bao bì (mã `CCDC…`, phom giày, túi nilong/túi giấy…) được **loại khỏi** phân tích tồn kho.
 
 ### 2.2. Target tuần và target ngày
 
@@ -98,7 +103,8 @@ Target trong `targetVN` là target **tháng**. Hệ thống chuyển thành targ
 | Tồn chậm | Có tồn nhưng không bán | 60 ngày |
 | Tồn dư | Cover vượt ngưỡng | > 90 ngày |
 | Mẫu top thiếu | Mẫu trong **top 30 bán chạy toàn chuỗi** mà cửa hàng không có tồn | — |
-| Điều chuyển | Hàng dư ở cửa hàng A chuyển sang cửa hàng B **thiếu đúng SKU đó**, trong cùng vùng giám sát | — |
+| Mẫu đủ size | Gợi ý hàng hóa ở cấp **mẫu-màu**, nhận/luân chuyển **nguyên dải size**; không chuyển lẻ từng size | ≥ 3 size |
+| Size lẻ | Mẫu còn < 3 size và không bán 60 ngày: gom khu xả, KM tại chỗ hoặc trả kho | < 3 size |
 
 > Tất cả ngưỡng đều chỉnh được trong `config.py`.
 
@@ -166,7 +172,7 @@ Phương pháp **thực thi** được nhiều tập đoàn bán lẻ và dịch
 | Giá TB thấp hơn chuỗi | Upsell dòng cao cấp, trưng bày ngang tầm mắt |
 | Có SKU bán chạy sắp hết | Đặt bổ sung (kèm danh sách SKU) |
 | Thiếu mẫu top chuỗi | Đề xuất nhận mẫu |
-| Có tồn chậm | Đưa ra kệ đầu, thi đua bán, điều chuyển |
+| Có tồn chậm | Đưa ra kệ đầu, thi đua bán, combo |
 | Luôn có | Họp đầu ca; họp WIG tuần |
 
 ### 3.3. Cấu trúc file Excel
@@ -176,7 +182,7 @@ Phương pháp **thực thi** được nhiều tập đoàn bán lẻ và dịch
 - Khối chỉ số vùng: target tháng, lũy kế, dự báo, target tuần, cần tăng bao nhiêu %, số cửa hàng đỏ.
 - **Bảng xếp hạng cửa hàng** (cửa hàng kém nhất lên đầu). Mỗi dòng có: trạng thái, % dự báo, cần/ngày, target tuần, bill mục tiêu, UPT mục tiêu, **driver gap chính**, số SKU cần bổ sung, số SKU tồn chậm.
 - Checklist việc của giám sát.
-- Bảng **gợi ý điều chuyển** giữa các cửa hàng trong vùng.
+- (Bản kết hợp) gợi ý hàng hóa theo mẫu đủ size, xem mục 7.6.
 
 **Sheet từng cửa hàng** (theo thứ tự từ trên xuống):
 
@@ -266,7 +272,7 @@ OGSM CỬA HÀNG (từng CH)
 |---|---|---|
 | **S1. Tăng lượt mua (số bill)** | Bill/tuần hiện tại → mục tiêu; số KH cũ có thể gọi lại | CRM gọi KH cũ, mời khách giờ cao điểm, đếm traffic |
 | **S2. Tăng giá trị bill** | UPT, Giá TB/SP, ATV, tỷ trọng phụ kiện | Bán kèm, upsell dòng cao cấp |
-| **S3. Hàng hóa đúng – đủ – bán được** | SKU bán chạy sắp hết, mẫu top thiếu, SP tồn chậm, cover | Bổ sung, nhận mẫu top, đẩy tồn chậm, điều chuyển |
+| **S3. Hàng hóa đúng – đủ – bán được** | SKU bán chạy sắp hết, mẫu top thiếu, SP tồn chậm, cover | Bổ sung, nhận mẫu đủ size, xử lý size lẻ, đẩy tồn chậm |
 | **S4. Kỷ luật thực thi** | Doanh số tuần, số ngày cập nhật bảng điểm | Họp đầu ca, họp tuần với GS |
 
 Hành động trong M2 lấy từ cùng bộ quy tắc ở M1, nhưng được **xếp theo chiến lược** thay vì theo driver.
@@ -278,7 +284,7 @@ Hành động trong M2 lấy từ cùng bộ quy tắc ở M1, nhưng được *
 - O (1 câu) và G (bảng mục tiêu vùng).
 - Bảng **S & M theo cửa hàng**: target tuần; S1 bill hiện tại → mục tiêu; S2 UPT hiện tại → mục tiêu; S3 số SKU cần bổ sung, SP tồn chậm.
 - Action plan của giám sát.
-- Điều chuyển nội vùng.
+- Gợi ý hàng hóa theo khu vực (mục 7.5).
 
 **Sheet từng cửa hàng**
 
@@ -355,14 +361,14 @@ Các chỉ số then chốt:
 | Nhãn | Khi nào |
 |---|---|
 | **BỔ SUNG** | Có OTB > 0 và cover thấp |
-| **XẢ / ĐIỀU CHUYỂN** | Có tồn dư |
+| **XẢ / LUÂN CHUYỂN NGUYÊN MẪU** | Có tồn dư |
 | **OK** | Còn lại |
 
 **D – DO (Thực hiện)**
 
 - Bổ sung SKU bán chạy sắp hết, kèm cột "Kho tổng có" để biết lấy hàng từ đâu.
 - Nhận mẫu top chuỗi chưa có.
-- **Điều chuyển**: cửa hàng này nhận hàng / chuyển đi những SKU nào, với cửa hàng nào.
+- **Nhận mẫu đủ size** đang bán tốt ở cửa hàng cùng khu vực; **xử lý size lẻ** tại chỗ (không chuyển lẻ).
 - Đẩy hàng tồn chậm.
 
 **C – CHECK (Kiểm tra)**
@@ -389,7 +395,7 @@ Bảng rút kinh nghiệm, cửa hàng tự nhập: *Điều gì hiệu quả / 
 
 - **Sức khỏe tồn kho theo cửa hàng**: tồn, cover, ST%, SKU cần bổ sung, mẫu top thiếu, SKU/SP tồn chậm, % tồn chậm. Cửa hàng tồn nặng nhất lên đầu.
 - **Ma trận nhóm hàng toàn vùng**: doanh số, bán, tồn, đang về, cover, ST%.
-- **Danh sách điều chuyển nội vùng** có trạng thái.
+- **Gợi ý luân chuyển nguyên mẫu** theo khu vực, GS quyết định.
 
 **Sheet từng cửa hàng:** khối chỉ số hàng hóa → P (bảng OTB nhóm hàng) → D (4 danh sách) → C (bảng điểm + checklist) → A (rút kinh nghiệm).
 
@@ -398,7 +404,7 @@ Bảng rút kinh nghiệm, cửa hàng tự nhập: *Điều gì hiệu quả / 
 | Thời điểm | Ai | Việc |
 |---|---|---|
 | Thứ Hai | CHT | Kiểm đếm, gửi đề xuất OTB/bổ sung |
-| Thứ Hai | GS | Duyệt đề xuất, duyệt phiếu điều chuyển |
+| Thứ Hai | GS | Duyệt đề xuất nhận mẫu đủ size, phương án size lẻ |
 | T3–T5 | CHT | Nhận hàng, lên kệ, đổi layout, kiểm tra size |
 | Chủ nhật | CHT | Đếm sell-through, ghi phần Act |
 | Đầu tuần sau | GS | Dùng phần Act để điều chỉnh kế hoạch |
@@ -409,7 +415,7 @@ Bảng rút kinh nghiệm, cửa hàng tự nhập: *Điều gì hiệu quả / 
 |---|---|
 | Giải quyết **mất doanh số do thiếu hàng/thiếu size**, rất quan trọng với ngành giày | Ít tác động đến **hành vi bán hàng** (mời khách, bán kèm) |
 | Giải phóng **vốn tồn chậm**, giảm hàng dư | Phụ thuộc độ chính xác tồn kho hệ thống. Dữ liệu tồn mới có từ 30/10/2026 |
-| Điều chuyển nội vùng: tận dụng hàng sẵn có, không cần nhập thêm | Chưa có giá vốn nên chưa tính GMROI (lãi gộp trên tồn kho) |
+| Gợi ý theo mẫu đủ size, khu vực, mùa vụ | Chưa có giá vốn nên chưa tính GMROI (lãi gộp trên tồn kho) |
 | PDCA tạo thói quen cải tiến | Nặng việc kho/vận hành hơn cho CHT |
 
 **Phù hợp khi:** vấn đề chính là **hàng hóa**: thiếu mẫu bán chạy, tồn kho nặng, phân bổ hàng giữa cửa hàng chưa tốt.
@@ -448,7 +454,7 @@ Theo số liệu hiện tại:
 Vì vậy đề xuất **kết hợp**:
 
 > **M1 làm khung vận hành chính** (WIG, driver tree, bảng điểm ngày, lead measures)
-> **\+ phần OTB/điều chuyển của M3 làm phụ lục hàng hóa**
+> **\+ phần OTB/hàng hóa của M3 làm phụ lục hàng hóa**
 > **\+ dùng sheet "OGSM vùng" của M2 để báo cáo cấp trên hằng tháng.**
 
 Nên **chạy thử 2–4 tuần** ở 1–2 vùng, sau đó chọn mô hình chính thức dựa trên phản hồi của GS/CHT và mức cải thiện bill, UPT.
@@ -481,7 +487,7 @@ OGSM  ─ khung chiến lược (đi đâu, thắng bằng gì, đo bằng gì)
 |---|---|---|
 | Chiến lược | **OGSM** | Đặt mục tiêu O/G và 4 chiến lược S1–S4, thống nhất từ vùng xuống cửa hàng |
 | Thực thi bán hàng | **Driver Tree + 4DX** | Chẩn đoán driver, mục tiêu tuần (WIG), bảng điểm ngày, lead measures |
-| Thực thi hàng hóa | **OTB + PDCA** | Kế hoạch hàng theo nhóm, bổ sung, điều chuyển, xả tồn chậm |
+| Thực thi hàng hóa | **OTB + PDCA** | Kế hoạch hàng theo nhóm, mẫu đủ size, size lẻ, mùa vụ, sự kiện, xả tồn chậm |
 | Cải tiến | **PDCA (Act) + họp WIG** | Đánh giá từng chiến lược cuối tuần, điều chỉnh tuần sau |
 
 Mọi hành động trong file đều mang **mã chiến lược S1–S4**, ví dụ *"S2 · UPT (SP/bill)"*. Nhờ đó luôn biết việc đó phục vụ chiến lược nào.
@@ -495,12 +501,14 @@ Mọi hành động trong file đều mang **mã chiến lược S1–S4**, ví 
 | **Hướng dẫn** | Cấu trúc mô hình, nhịp làm việc, quy ước ô nhập | — |
 | **OGSM vùng** | O, G vùng; bảng S1–S4 × từng cửa hàng (hiện tại → mục tiêu); việc của GS | OGSM |
 | **Điều hành bán hàng** | Xếp hạng cửa hàng theo % dự báo: target, lũy kế, cần/ngày, bill, UPT, ATV, driver gap chính | Driver Tree |
-| **Hàng hóa vùng** | Sức khỏe tồn kho từng CH, nhóm hàng toàn vùng, **điều chuyển nội vùng** để GS duyệt | OTB |
+| **Hàng hóa vùng** | Sức khỏe tồn kho & đặc tính từng CH, **xu hướng nhóm hàng theo khu vực**, **lịch sự kiện**, **gợi ý luân chuyển nguyên mẫu** để GS quyết định | OTB |
 | **1 sheet / cửa hàng** | 4 mục ① ② ③ ④, xem 7.3 | Cả 3 |
 
 ### 7.3. Sheet cửa hàng – 4 mục
 
 **Khối đầu trang:** trạng thái, target tháng, lũy kế, dự báo, target tuần, cần/ngày.
+
+**Đặc tính cửa hàng:** khu vực, loại mặt bằng, mức giá so với chuỗi, % hàng nữ, % phụ kiện, size bán chạy, UPT bill combo/thường, % bill combo, ghi chú mùa vụ, nhóm cửa hàng dùng để so sánh.
 
 **① OGSM cửa hàng**
 
@@ -528,7 +536,7 @@ Mọi hành động trong file đều mang **mã chiến lược S1–S4**, ví 
 | Bước | Nội dung |
 |---|---|
 | **P – Plan** | SL cần bán tuần; bảng OTB theo nhóm hàng (bán, tồn, đang về, cover, ST%, KH bán, OTB cần nhập, tồn dư, nhãn hành động) |
-| **D – Do** | Checklist S3; bổ sung SKU sắp hết; mẫu top chuỗi chưa có; điều chuyển nhận/chuyển đi; tồn chậm |
+| **D – Do** | Checklist S3; bổ sung SKU sắp hết; mẫu top chuỗi chưa có; cơ hội nhóm hàng; nhận mẫu đủ size; size lẻ; luân chuyển nguyên mẫu; tồn chậm; sự kiện |
 | **C – Check** | Checklist kiểm tra hàng hóa theo ngày trong tuần |
 
 **④ Đánh giá tuần (Check – Act)**
@@ -548,19 +556,37 @@ Bảng này là đầu vào cho **họp WIG thứ Hai** tuần kế tiếp.
 |---|---|---|---|
 | Thứ Hai sáng | GS + CHT | Họp WIG 20': xem OGSM CH, driver tree, đánh giá tuần trước, chốt cam kết | ① ② ④ |
 | Thứ Hai | CHT → GS | Kiểm đếm, gửi đề xuất bổ sung/OTB | ③ |
-| Thứ Hai | GS | Duyệt điều chuyển | Hàng hóa vùng |
+| Thứ Hai | GS | Duyệt đề xuất mẫu đủ size, luân chuyển nguyên mẫu, phương án size lẻ | Hàng hóa vùng |
 | Mỗi sáng | CHT + NV | Họp đầu ca 10' theo bảng điểm | ② |
 | Mỗi tối | CHT | Nhập thực tế, bill, SP; cập nhật trạng thái checklist | ② ③ |
 | T3–T5 | CHT | Nhận hàng, lên kệ, đổi layout, kiểm tra size | ③ |
 | Chủ nhật | CHT | Nhập thực tế cuối tuần cho G/S1–S4, viết đánh giá | ① ④ |
 | Chủ nhật | GS | Tổng hợp vùng, báo cáo cấp trên | OGSM vùng |
 
-### 7.5. Cách chạy
+### 7.5. Phân tích hàng hóa chuyên sâu (thay cho điều chuyển lẻ size)
+
+**Vì sao bỏ điều chuyển lẻ size:** chuyển 1–2 size của một mã sang cửa hàng khác làm **cửa hàng chuyển đi bị lủng size**: khách đến không có size, mẫu mất khả năng bán. Gợi ý hàng hóa giờ dựa trên phân tích, ở cấp **mẫu-màu đủ dải size**, và **GS là người quyết định**.
+
+| Phân tích | Cách làm | Kết quả trong file |
+|---|---|---|
+| **Khu vực địa lý** | Mã khu vực trong tên CH: HN, MB, HC, MĐ, MT, TN. Mỗi CH được so với **CH cùng khu vực** (đủ ≥ 3 CH, nếu thiếu thì so toàn chuỗi) | Cột "So sánh với…" |
+| **Mùa vụ / khí hậu** | Đặc điểm theo tháng từng khu vực (miền Bắc mùa lạnh 11–2; miền Trung mưa bão 9–12; miền Nam mưa 5–11, khô 12–4…), cấu hình trong `config.py` | Ghi chú mùa vụ + hành động sắp xếp layout |
+| **Xu hướng nhóm hàng theo khu vực** | Bán 28 ngày gần nhất so với 28 ngày trước, theo nhóm hàng, trong từng khu vực | Bảng xu hướng ở "Hàng hóa vùng". Ví dụ: Boots ở Hà Nội +77% đầu mùa lạnh |
+| **Đặc tính khách hàng** (suy ra từ bán hàng) | Mức giá so với chuỗi, % hàng nữ, % phụ kiện, size bán chạy, hiệu quả combo | Khối "Đặc tính cửa hàng" |
+| **Cơ hội nhóm hàng** | Tỷ trọng nhóm của CH so với khu vực, kết hợp xu hướng khu vực | THIẾU / MẠNH / tương đương, kèm hành động |
+| **Mẫu nên nhận (đủ size)** | Mẫu bán tốt ở ≥ 2 CH cùng khu vực mà CH không có hoặc chỉ còn < 3 size. **Size nên nhận lấy theo size bán chạy của chính mẫu đó** trong khu vực (vd boots nữ 35–39). Có số size và SL còn ở kho tổng | Bảng đề xuất, GS duyệt |
+| **Size lẻ** | Mẫu còn < 3 size, không bán 60 ngày | Chọn phương án: khu xả size lẻ / KM tại chỗ / trả kho tổng / giữ lại. **Không chuyển lẻ** |
+| **Luân chuyển nguyên mẫu** | Mẫu còn **đủ dải size** nhưng CH không bán 60 ngày, trong khi khu vực khác bán ≥ 5 đôi/28 ngày và nhóm hàng ở đó không giảm | Gợi ý cho GS quyết định, chuyển **nguyên mẫu** |
+| **Sự kiện** | Lịch sự kiện bán lẻ (11.11, 20/11, Black Friday, 12.12, Noel, Tết…). Hiệu ứng đo trên POS: doanh số chuỗi ngày sự kiện ±1 ngày so với TB cùng thứ 4 tuần trước (đã đo: 2/9 ×1,94; 20/10 ×1,39; 10.10 ×1,14) | Bảng sự kiện; sự kiện rơi vào tuần kế hoạch thành hành động S1 |
+| **Combo** | UPT bill có voucher combo/mua nhiều so với bill thường (toàn chuỗi khoảng 5,1 so với 2,7) | Hành động S2: tăng % bill combo |
+
+> **Giới hạn:** POS trên Haravan mới đủ từ tháng 6/2026, nên chưa có cùng kỳ năm trước. Sự kiện chưa từng diễn ra trong dữ liệu (11.11, 20/11, Black Friday) ghi "chưa có lịch sử POS". Đặc tính dân cư đang **suy ra từ hành vi mua tại cửa hàng**, chưa có dữ liệu dân số/thu nhập bên ngoài. Có thể bổ sung sau qua `config.py`.
+
+### 7.6. Cách chạy
 
 ```bash
 python3 run.py                      # mô hình kết hợp, tuần kế tiếp (mặc định)
 python3 run.py --week 2026-11-16    # chỉ định thứ Hai đầu tuần
-python3 run.py --model all          # xuất thêm 3 mô hình riêng để đối chiếu
 ```
 
 Kết quả nằm tại `output/<năm-Wtuần>/KET_HOP_OGSM_4DX_OTB/BP_<tuần>_KETHOP_<giám sát>.xlsx`.

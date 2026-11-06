@@ -2,7 +2,6 @@
 
     python3 run.py                       # tuần kế tiếp, mô hình kết hợp (mặc định)
     python3 run.py --week 2026-11-09     # chỉ định thứ Hai của tuần
-    python3 run.py --model all           # kethop | m1 | m2 | m3 | all
     python3 run.py --gs "Kim Ngân"       # chỉ 1 giám sát
 """
 import argparse
@@ -15,9 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from bp import metrics, model_combined, model_drivertree, model_merch, model_ogsm  # noqa: E402
+from bp import metrics, model_combined  # noqa: E402
 
-MODELS = {"kethop": model_combined, "m1": model_drivertree, "m2": model_ogsm, "m3": model_merch}
+MODELS = {"kethop": model_combined}
 
 
 def slug(s):
@@ -29,8 +28,7 @@ def slug(s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--week", help="Thứ Hai đầu tuần kế hoạch, YYYY-MM-DD")
-    ap.add_argument("--model", default="kethop", choices=["all", *MODELS],
-                    help="kethop (mặc định) | m1 | m2 | m3 | all")
+    ap.add_argument("--model", default="kethop", choices=list(MODELS))
     ap.add_argument("--gs", help="Tên giám sát")
     ap.add_argument("--out", default=str(ROOT / "output"))
     ap.add_argument("--allow-gaps", action="store_true", help="vẫn chạy khi dữ liệu bán thiếu ngày")
@@ -50,7 +48,7 @@ def main():
     if a.gs:
         groups = {k: v for k, v in groups.items() if k == a.gs}
 
-    chosen = MODELS if a.model == "all" else {a.model: MODELS[a.model]}
+    chosen = {a.model: MODELS[a.model]}
     for key, mod in chosen.items():
         d = Path(a.out) / ctx.week_label / mod.NAME
         d.mkdir(parents=True, exist_ok=True)

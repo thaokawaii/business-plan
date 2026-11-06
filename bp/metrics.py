@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pandas as pd
 
 import config as C
-from . import data
+from . import data, insights
 
 WD = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
 
@@ -58,7 +58,7 @@ def build(week_start: date | None = None, allow_gaps: bool = False) -> Ctx:
     months = sorted({(as_of.year, as_of.month)} | {(d.year, d.month) for d in
                      (week_start + timedelta(i) for i in range(7))})
     tg = data.targets(months)
-    start = min(date(as_of.year, as_of.month, 1), as_of - timedelta(days=89))
+    start = as_of - timedelta(days=400)   # đủ lịch sử để đo hiệu ứng sự kiện
     kpi = data.daily_kpi(start, as_of)
     kpi["d"] = pd.to_datetime(kpi["d"]).dt.date
 
@@ -222,29 +222,6 @@ def build(week_start: date | None = None, allow_gaps: bool = False) -> Ctx:
             rep=rep, slow=slow.head(C.TOP_N_LIST), slow_n=len(slow), slow_units=slow_units,
             over=over, miss=miss, cat=cat, inv_df=m,
         ))
+    insights.build(ctx, vs, inv, vm, kpi, data.combo_effect(as_of))
     return ctx
 
-
-def transfers(stores):
-    """Gợi ý điều chuyển giữa các CH cùng giám sát: CH dư (cover > ngưỡng) -> CH thiếu."""
-    out = []
-    excess = {}
-    for s in stores:
-        for x in s["inv_df"].itertuples():
-            if x.qty_onhand >= 2 and (x.cover > C.OVERSTOCK_COVER_DAYS):
-                give = int(x.qty_onhand - math.ceil(x.rate * C.TARGET_COVER_DAYS)) if x.rate else int(x.qty_onhand) - 1
-                if give > 0:
-                    excess.setdefault(x.variant_id, []).append([s["name"], give])
-    for s in stores:
-        for x in s["rep"].itertuples():
-            need = int(x.de_xuat)
-            for src in excess.get(x.variant_id, []):
-                if need <= 0:
-                    break
-                if src[0] == s["name"] or src[1] <= 0:
-                    continue
-                q = min(need, src[1])
-                out.append(dict(tu=src[0], den=s["name"], sku=x.productCode, ten=x.fullName, sl=q))
-                src[1] -= q
-                need -= q
-    return out

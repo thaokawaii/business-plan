@@ -93,3 +93,15 @@ def dormant_customers(as_of: date):
             GROUP BY o.MaLocation, o.KH_SDT) x
         WHERE last_buy < %s GROUP BY MaLocation""",
         (as_of - timedelta(days=365), as_of - timedelta(days=60)))
+
+
+def combo_effect(as_of: date):
+    """Bill có voucher combo/mua nhiều vs bill thường (90 ngày) theo cửa hàng."""
+    return query(f"""
+        SELECT o.MaLocation,
+               CASE WHEN o.Voucher LIKE '%%COMBO%%' OR o.Voucher LIKE 'MUA%%' THEN 1 ELSE 0 END combo,
+               COUNT(DISTINCT o.MaDon) bills, SUM(o.SP_SL) units, SUM({C.REVENUE_EXPR}) rev
+        FROM Haravan_DonHang_ChiTiet o
+        WHERE {_order_filter()} AND o.TaoLuc >= %s AND o.TaoLuc < %s
+        GROUP BY o.MaLocation, CASE WHEN o.Voucher LIKE '%%COMBO%%' OR o.Voucher LIKE 'MUA%%' THEN 1 ELSE 0 END""",
+        (as_of - timedelta(days=89), as_of + timedelta(days=1)))

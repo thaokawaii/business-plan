@@ -21,6 +21,16 @@ def safe_div(a, b):
     return a / b if b else 0.0
 
 
+def _non_merch(code, name):
+    """True với công cụ dụng cụ / vật tư / bao bì (không phải hàng bán)."""
+    c = code.fillna("").astype(str).str.upper()
+    n = name.fillna("").astype(str).str.lower()
+    m = c.str.startswith(tuple(p.upper() for p in C.NON_MERCH_SKU_PREFIXES))
+    for k in C.NON_MERCH_NAME_KEYWORDS:
+        m |= n.str.contains(k.lower(), regex=False)
+    return m
+
+
 @dataclass
 class Ctx:
     as_of: date
@@ -65,6 +75,8 @@ def build(week_start: date | None = None, allow_gaps: bool = False) -> Ctx:
     inv = data.inventory()
     ctx.inv_snapshot = inv["snapshotDate"].max() if len(inv) else None
     vm = data.variant_master()
+    inv = inv[~_non_merch(inv["productCode"], inv["fullName"])]
+    vs = vs[~_non_merch(vs["sku"], vs["ten"])]
     dorm = data.dormant_customers(as_of).set_index("MaLocation")["n"].to_dict()
 
     cat_map = vm.drop_duplicates("variant_id").set_index("variant_id")["categoryName"].to_dict()

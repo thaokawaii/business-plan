@@ -29,6 +29,8 @@ def connect():
 def query(sql, params=None):
     with connect() as c:
         cur = c.cursor()
+        # Chỉ đọc báo cáo: không chờ khóa do ETL đang ghi (bước kiểm tra thiếu ngày sẽ chặn dữ liệu nạp dở)
+        cur.execute("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SET LOCK_TIMEOUT 30000;")
         cur.execute(sql, params)
         cols = [d[0] for d in cur.description]
         rows = cur.fetchall()

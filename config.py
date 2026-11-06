@@ -30,3 +30,8 @@ BENCH_GAP = 0.95            # chỉ số < 95% trung vị chuỗi -> cần cải
 
 # Nhóm hàng bán kèm (để gợi ý tăng UPT)
 ADDON_CATEGORIES = ("Vớ nam", "Lót giày nam", "Thắt lưng nam", "Bóp - ví nam", "Khác")
+
+# Loại khỏi phân tích tồn kho/hàng hóa: công cụ dụng cụ, vật tư trưng bày, bao bì (không phải hàng bán)
+NON_MERCH_SKU_PREFIXES = ("CCDC", "FORMGIAY", "PCTUIE", "PCBUTBI")
+NON_MERCH_NAME_KEYWORDS = ("túi nilong", "móc treo", "cây trưng", "trưng giày", "trưng túi", "phom giày",
+                           "hoa trang trí", "bút bi", "kệ trưng", "standee")
